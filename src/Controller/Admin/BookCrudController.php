@@ -12,6 +12,7 @@ use EasyCorp\Bundle\EasyAdminBundle\Field\BooleanField;
 use EasyCorp\Bundle\EasyAdminBundle\Field\FileField;
 use EasyCorp\Bundle\EasyAdminBundle\Field\ImageField;
 use EasyCorp\Bundle\EasyAdminBundle\Field\SlugField;
+use EasyCorp\Bundle\EasyAdminBundle\Field\TextareaField;
 use EasyCorp\Bundle\EasyAdminBundle\Field\TextEditorField;
 use EasyCorp\Bundle\EasyAdminBundle\Field\TextField;
 use Override;
@@ -96,17 +97,87 @@ class BookCrudController extends AbstractCrudController
         $path = $year . '_' . $month;
         return [
             TextField::new('title')->setLabel('titre')->setRequired(true),
-            TextEditorField::new('summary')->setLabel('Résumé')->setRequired(true),
+            TextEditorField::new('summary')->setLabel('Résumé')->setRequired(true)->onlyOnForms(),
+            TextareaField::new('summary', 'Résumé')->renderAsHtml()->hideOnForm()->formatValue(function ($value, $entity) {
+                if (!$value) return '';
+                $id = 'modal-' . $entity->getId();
+                return sprintf(
+                    '<a href="#"  data-bs-toggle="modal" data-bs-target="#%s">
+                📄 Voir le résumé
+            </a>
+            <div class="modal fade" id="%s" tabindex="-1">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Résumé</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body text-break">%s</div>
+                    </div>
+                </div>
+            </div>',
+                    $id,
+                    $id,
+                    $value
+                );
+            }),
             AssociationField::new('author', 'Auteur')->setRequired(true)->setFormTypeOption('placeholder', 'Choisissez un auteur'),
-            AssociationField::new('categories', 'Catégories')->setRequired(true)->setFormTypeOption('attr', ['placeholder' => 'Choisissez une ou plusieurs catégorie(s)']),
+            AssociationField::new('categories', 'Catégories')->setRequired(true)->onlyOnForms()->setFormTypeOption('attr', ['placeholder' => 'Choisissez une ou plusieurs catégorie(s)']),
+            AssociationField::new('categories', 'Catégories')
+                ->renderAsHtml()
+                ->hideOnForm()
+                ->formatValue(function ($_, $entity) {
+                    $categories = $entity->getCategories();
+                    if ($categories->isEmpty()) {
+                        return '';
+                    }
+                    $id = 'modal-categories-' . $entity->getId();
+                    $badges = implode(' ', array_map(
+                        fn($category) => sprintf(
+                            '<span class="badge badge-pill badge-info">%s</span>',
+                            htmlspecialchars($category->getCategoryName())
+                        ),
+                        $categories->toArray()
+                    ));
+                    return sprintf(
+                        '<a href="#" data-bs-toggle="modal" data-bs-target="#%s">🏷️ %d catégorie(s)</a>
+                        <div class="modal fade" id="%s" tabindex="-1">
+                            <div class="modal-dialog">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title">Catégories</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                    </div>
+                                    <div class="modal-body" style="display:flex;flex-wrap:wrap;gap:6px;">%s</div>
+                                </div>
+                            </div>
+                        </div>',
+                        $id,
+                        $categories->count(),
+                        $id,
+                        $badges
+                    );
+                }),
             SlugField::new('bookSlug')->setTargetFieldName(['title', 'author']),
             FileField::new('bookfileName', 'Livre')
                 ->setUploadDir('public/uploads/books/files/' . $path . '/')
                 ->setBasePath('uploads/books/files/' . $path . '/')
                 ->setUploadedFileNamePattern('[randomhash].[extension]')
                 ->setRequired(true)
+                ->hideOnIndex()
                 ->maxSize('7M')
                 ->mimeTypes('.pdf'),
+            TextField::new('bookFileName', 'Livre')
+                ->renderAsHtml()
+                ->hideOnForm()
+                ->formatValue(function ($value) use ($path) {
+                    if (!$value) return '';
+                    return sprintf(
+                        '<a href="/uploads/books/files/%s/%s" target="_blank" style="text-decoration:none">📄 Voir le PDF</a>',
+                        $path,
+                        $value
+                    );
+                }),
             ImageField::new('coverImageName', 'Couverture')
                 ->setUploadDir('public/uploads/books/image/' . $path . '/')
                 ->setBasePath('uploads/books/image/' . $path . '/')
