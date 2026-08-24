@@ -3,6 +3,7 @@
 namespace App\Controller\Admin;
 
 use App\Entity\Book;
+use Doctrine\ORM\EntityManagerInterface;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Action;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Actions;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Crud;
@@ -16,10 +17,15 @@ use EasyCorp\Bundle\EasyAdminBundle\Field\TextareaField;
 use EasyCorp\Bundle\EasyAdminBundle\Field\TextEditorField;
 use EasyCorp\Bundle\EasyAdminBundle\Field\TextField;
 use Override;
-
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 class BookCrudController extends AbstractCrudController
 {
+    public function __construct(
+        #[Autowire(param: 'kernel.project_dir')]
+        private readonly string $projectDir,
+    ) {}
+
     public static function getEntityFqcn(): string
     {
         return Book::class;
@@ -87,6 +93,91 @@ class BookCrudController extends AbstractCrudController
                 return $action->setLabel('Retour à la liste');
             })
         ;
+    }
+
+    private function currentUploadPath(): string
+    {
+        $now = new \DateTimeImmutable();
+
+        return $now->format('Y') . '_' . $now->format('m');
+    }
+
+    #[Override]
+    public function persistEntity(EntityManagerInterface $entityManager, object $entityInstance): void
+    {
+        if ($entityInstance instanceof Book) {
+            $path = $this->currentUploadPath();
+            if ($entityInstance->getBookFileName()) {
+                $entityInstance->setBookFilePath($path);
+            }
+            if ($entityInstance->getCoverImageName()) {
+                $entityInstance->setCoverImagePath($path);
+            }
+        }
+
+        $entityManager->persist($entityInstance);
+        $entityManager->flush();
+    }
+
+    #[Override]
+    public function updateEntity(EntityManagerInterface $entityManager, object $entityInstance): void
+    {
+        $filesToDelete = [];
+
+        if ($entityInstance instanceof Book) {
+            $original = $entityManager->getUnitOfWork()->getOriginalEntityData($entityInstance);
+            $path = $this->currentUploadPath();
+
+            if (($original['bookFileName'] ?? null) !== $entityInstance->getBookFileName()) {
+                $filesToDelete[] = $this->resolveFilePath('books/files', $original['bookFilePath'] ?? null, $original['bookFileName'] ?? null);
+                $entityInstance->setBookFilePath($path);
+            }
+            if (($original['coverImageName'] ?? null) !== $entityInstance->getCoverImageName()) {
+                $filesToDelete[] = $this->resolveFilePath('books/images', $original['coverImagePath'] ?? null, $original['coverImageName'] ?? null);
+                $entityInstance->setCoverImagePath($path);
+            }
+
+            $filesToDelete = array_filter($filesToDelete);
+        }
+
+        $entityManager->persist($entityInstance);
+        $entityManager->flush();
+
+        foreach ($filesToDelete as $file) {
+            if (is_file($file)) {
+                @unlink($file);
+            }
+        }
+    }
+
+    #[Override]
+    public function deleteEntity(EntityManagerInterface $entityManager, object $entityInstance): void
+    {
+        $filesToDelete = [];
+        if ($entityInstance instanceof Book) {
+            $filesToDelete = array_filter([
+                $this->resolveFilePath('books/files', $entityInstance->getBookFilePath(), $entityInstance->getBookFileName()),
+                $this->resolveFilePath('books/images', $entityInstance->getCoverImagePath(), $entityInstance->getCoverImageName()),
+            ]);
+        }
+
+        $entityManager->remove($entityInstance);
+        $entityManager->flush();
+
+        foreach ($filesToDelete as $file) {
+            if (is_file($file)) {
+                @unlink($file);
+            }
+        }
+    }
+
+    private function resolveFilePath(string $subDir, ?string $path, ?string $fileName): ?string
+    {
+        if (!$path || !$fileName) {
+            return null;
+        }
+
+        return $this->projectDir . '/public/uploads/' . $subDir . '/' . $path . '/' . $fileName;
     }
 
     public function configureFields(string $pageName): iterable
@@ -170,21 +261,39 @@ class BookCrudController extends AbstractCrudController
             TextField::new('bookFileName', 'Livre')
                 ->renderAsHtml()
                 ->hideOnForm()
-                ->formatValue(function ($value) use ($path) {
+                ->formatValue(function ($value, $entity) {
                     if (!$value) return '';
                     return sprintf(
                         '<a href="/uploads/books/files/%s/%s" target="_blank" style="text-decoration:none">📄 Voir le PDF</a>',
-                        $path,
+                        $entity->getBookFilePath(),
                         $value
                     );
                 }),
             ImageField::new('coverImageName', 'Couverture')
-                ->setUploadDir('public/uploads/books/image/' . $path . '/')
-                ->setBasePath('uploads/books/image/' . $path . '/')
+                ->setUploadDir('public/uploads/books/images/' . $path . '/')
+                ->setBasePath('uploads/books/images/' . $path . '/')
                 ->setUploadedFileNamePattern('[randomhash].[extension]')
                 ->setRequired(true)
                 ->maxSize('2M', 'Le fichier "{{ name }}" dépasse la taille maximale autorisée ({{ limit }} {{ suffix }}).')
-                ->mimeTypes('image/jpeg,image/png,image/webp'),
+                ->mimeTypes('image/jpeg,image/png,image/webp')
+                ->setTemplateName('crud/field/text')
+                ->formatValue(function ($value, $entity) {
+                    if (!$value) return '';
+                    $url = sprintf('/uploads/books/images/%s/%s', $entity->getCoverImagePath(), $value);
+                    $lightboxId = 'ea-lightbox-cover-' . $entity->getId();
+                    return sprintf(
+                        '<a href="#" class="ea-lightbox-thumbnail" data-ea-lightbox-content-selector="#%s">
+                            <img src="%s" class="img-fluid">
+                        </a>
+                        <div id="%s" class="ea-lightbox">
+                            <img src="%s">
+                        </div>',
+                        $lightboxId,
+                        $url,
+                        $lightboxId,
+                        $url
+                    );
+                }),
             BooleanField::new('isArchived', 'Archivé')
         ];
     }
