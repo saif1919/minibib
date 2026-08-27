@@ -254,7 +254,7 @@ class BookCrudController extends AbstractCrudController
                 ->setUploadDir('public/uploads/books/files/' . $path . '/')
                 ->setBasePath('uploads/books/files/' . $path . '/')
                 ->setUploadedFileNamePattern('[randomhash].[extension]')
-                ->setRequired(true)
+                ->setRequired($pageName === Crud::PAGE_NEW)
                 ->hideOnIndex()
                 ->maxSize('7M')
                 ->mimeTypes('.pdf'),
@@ -273,7 +273,7 @@ class BookCrudController extends AbstractCrudController
                 ->setUploadDir('public/uploads/books/images/' . $path . '/')
                 ->setBasePath('uploads/books/images/' . $path . '/')
                 ->setUploadedFileNamePattern('[randomhash].[extension]')
-                ->setRequired(true)
+                ->setRequired($pageName === Crud::PAGE_NEW)
                 ->maxSize('2M', 'Le fichier "{{ name }}" dépasse la taille maximale autorisée ({{ limit }} {{ suffix }}).')
                 ->mimeTypes('image/jpeg,image/png,image/webp')
                 ->setTemplateName('crud/field/text')
